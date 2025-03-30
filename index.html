@@ -1,312 +1,433 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Grid-Based Snake Game</title>
+    <title>Nature Snake Game</title>
     <style>
         body {
             display: flex;
             flex-direction: column;
             align-items: center;
-            background: #1a1a1a;
+            background: #d0e4d0;
             margin: 0;
-            font-family: Arial, sans-serif;
+            font-family: 'Arial', sans-serif;
         }
         #gameCanvas {
-            border: 3px solid #333;
+            border: 3px solid #8cb08c;
             margin-top: 20px;
+            background: #c0d8c0;
         }
-        #score {
-            color: white;
+        #stats {
+            color: #2d4d2d;
             font-size: 24px;
             margin: 10px;
+            display: flex;
+            gap: 30px;
         }
         #startBtn {
-            padding: 10px 20px;
-            font-size: 18px;
-            margin: 10px;
+            padding: 12px 35px;
+            font-size: 20px;
+            margin: 15px;
             cursor: pointer;
             background: #4CAF50;
             border: none;
             color: white;
-            border-radius: 5px;
-            transition: background 0.3s;
+            border-radius: 25px;
+            transition: all 0.3s;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
         }
-        #startBtn:hover {
-            background: #45a049;
+        #messages {
+            position: absolute;
+            right: 30px;
+            top: 120px;
+            color: #2d4d2d;
+            font-size: 18px;
+            max-width: 200px;
+            text-align: right;
+            z-index: 100;
+            pointer-events: none;
+        }
+        #speed {
+            position: absolute;
+            left: 30px;
+            top: 120px;
+            color: #2d4d2d;
+            font-size: 18px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 8px;
+            border-radius: 8px;
+        }
+        .encouragement {
+            font-family: 'Comic Sans MS', 'Chalkboard SE', cursive;
+            font-size: 24px;
+            color: #2d4d2d;
+            text-shadow: 1px 1px 2px white;
+            margin: 10px 0;
+            opacity: 1;
+            animation: fadeInUp 0.5s ease-out;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        .emoji {
+            font-size: 28px;
+            filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.2));
+            font-family: 'Segoe UI Emoji', 'Apple Color Emoji', sans-serif;
         }
     </style>
 </head>
 <body>
+<div id="stats">
     <div id="score">Score: 0</div>
-    <canvas id="gameCanvas" width="600" height="400"></canvas>
-    <button id="startBtn">Start Game</button>
+    <div id="timer">Time: 0s</div>
+</div>
+<div id="speed">Speed: 🐍 1/10</div>
+<canvas id="gameCanvas" width="800" height="550"></canvas>
+<div id="messages"></div>
+<button id="startBtn">Start Game</button>
+<audio id="bgMusic" loop>
+    <source src="bgMusic_v2.mp3" type="audio/mpeg">
+    Your browser does not support the audio element.
+</audio>
 
-    <script>
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const scoreElement = document.getElementById('score');
-        const startBtn = document.getElementById('startBtn');
+<script>
+    let bgMusic = document.getElementById('bgMusic');
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+    const timerElement = document.getElementById('timer');
+    const startBtn = document.getElementById('startBtn');
+    const messagesElement = document.getElementById('messages');
+    const speedElement = document.getElementById('speed');
 
-        // Game constants
-        const GRID_SIZE = 10;
-        const CELL_SIZE = 20;
-        const INITIAL_SPEED = 300;
-        
-        let segments = [];
-        let food = {};
-        let dx = CELL_SIZE;
-        let dy = 0;
-        let score = 0;
-        let gameStarted = false;
-        let gameLoop;
-        let lastUpdate = 0;
-        let updateInterval = INITIAL_SPEED;
-        let pendingDirection = null;
-        let tongueOut = false;
+    // Game constants
+    const GRID_SIZE = 25;
+    const CELL_SIZE = 25;
+    const INITIAL_SPEED = 150;
+    const ENCOURAGEMENTS = [
+        { text: "Great job!", emojis: ["🎉", "👏", "👍"] },
+        { text: "Nom nom!", emojis: ["🍎", "🐛", "🍴"] },
+        { text: "Growing strong!", emojis: ["💪", "🌱", "🚀"] },
+        { text: "Awesome!", emojis: ["🤩", "🌟", "✨"] },
+        { text: "Well done!", emojis: ["🏆", "🎯", "✅"] },
+        { text: "Yummy!", emojis: ["😋", "🍔", "🍕"] },
+        { text: "Keep going!", emojis: ["🏃", "⚡", "🔥"] },
+        { text: "Fantastic!", emojis: ["🌈", "🎊", "🎈"] }
+    ];
 
-        function initGame() {
-            segments = [{x: 600, y: 500}];
-            score = 0;
-            dx = CELL_SIZE;
-            dy = 0;
-            updateInterval = INITIAL_SPEED;
-            pendingDirection = null;
-            spawnFood();
-            scoreElement.textContent = `Score: ${score}`;
-            tongueOut = false;
-            setInterval(() => tongueOut = !tongueOut, 300);
+    let segments = [];
+    let food = {};
+    let dx = CELL_SIZE;
+    let dy = 0;
+    let score = 0;
+    let gameStarted = false;
+    let gameLoop;
+    let lastUpdate = 0;
+    let updateInterval = INITIAL_SPEED;
+    let pendingDirection = null;
+    let tongueOut = false;
+    let startTime = 0;
+    let timerInterval;
+
+    function initGame() {
+        segments = [{x: 400, y: 300}];
+        score = 0;
+        dx = CELL_SIZE;
+        dy = 0;
+        updateInterval = INITIAL_SPEED;
+        pendingDirection = null;
+        spawnFood();
+        scoreElement.textContent = `Score: ${score}`;
+        timerElement.textContent = `Time: 0s`;
+        tongueOut = false;
+        startTime = Date.now();
+        updateSpeedDisplay();
+
+        if(timerInterval) clearInterval(timerInterval);
+        timerInterval = setInterval(updateTimer, 1000);
+
+        setInterval(() => tongueOut = !tongueOut, 300);
+    }
+
+    function updateTimer() {
+        if(!gameStarted) return;
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        timerElement.textContent = `Time: ${elapsed}s`;
+    }
+
+    function drawGrid() {
+        ctx.strokeStyle = '#a0c0a0';
+        ctx.lineWidth = 0.5;
+
+        // Vertical lines
+        for(let x = 0; x <= canvas.width; x += GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, canvas.height);
+            ctx.stroke();
         }
 
-        function drawGrid() {
-            ctx.strokeStyle = '#333';
-            ctx.lineWidth = 0.5;
-            
-            // Vertical lines
-            for(let x = 0; x <= canvas.width; x += GRID_SIZE) {
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, canvas.height);
-                ctx.stroke();
-            }
-            
-            // Horizontal lines
-            for(let y = 0; y <= canvas.height; y += GRID_SIZE) {
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(canvas.width, y);
-                ctx.stroke();
-            }
+        // Horizontal lines
+        for(let y = 0; y <= canvas.height; y += GRID_SIZE) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(canvas.width, y);
+            ctx.stroke();
         }
+    }
 
-        function spawnFood() {
-            const cols = canvas.width / CELL_SIZE;
-            const rows = canvas.height / CELL_SIZE;
-            
-            do {
-                food = {
-                    x: Math.floor(Math.random() * cols) * CELL_SIZE,
-                    y: Math.floor(Math.random() * rows) * CELL_SIZE
+    function spawnFood() {
+        const cols = canvas.width / CELL_SIZE;
+        const rows = canvas.height / CELL_SIZE;
+
+        do {
+            food = {
+                x: Math.floor(Math.random() * cols) * CELL_SIZE,
+                y: Math.floor(Math.random() * rows) * CELL_SIZE
+            };
+        } while(segments.some(segment =>
+            segment.x === food.x && segment.y === food.y
+        ));
+    }
+
+    function updateSpeedDisplay() {
+        const speedLevel = Math.floor((INITIAL_SPEED - updateInterval) / ((INITIAL_SPEED - 50) / 9)) + 1;
+        speedElement.innerHTML = `Speed: ${'🐍'.repeat(Math.min(speedLevel, 5))} ${speedLevel}/10`;
+    }
+
+    function showEncouragement() {
+        const encouragement = ENCOURAGEMENTS[Math.floor(Math.random() * ENCOURAGEMENTS.length)];
+        const emoji = encouragement.emojis[Math.floor(Math.random() * encouragement.emojis.length)];
+
+        const message = document.createElement('div');
+        message.className = 'encouragement';
+        message.innerHTML = `
+            <span class="emoji">${emoji}</span>
+            <span>${encouragement.text}</span>
+        `;
+
+        messagesElement.prepend(message);
+
+        setTimeout(() => {
+            message.style.opacity = '0';
+            setTimeout(() => message.remove(), 1000);
+        }, 3000);
+    }
+
+    function drawWorm() {
+        segments.forEach((segment, index) => {
+            const gradient = ctx.createRadialGradient(
+                segment.x + CELL_SIZE/2,
+                segment.y + CELL_SIZE/2,
+                0,
+                segment.x + CELL_SIZE/2,
+                segment.y + CELL_SIZE/2,
+                CELL_SIZE
+            );
+            gradient.addColorStop(0, `hsl(${100 - index}, 70%, 40%)`);
+            gradient.addColorStop(1, `hsl(${80 - index}, 70%, 25%)`);
+
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.roundRect(
+                segment.x,
+                segment.y,
+                CELL_SIZE, CELL_SIZE,
+                index === 0 ? 8 : 4
+            );
+            ctx.fill();
+
+            if(index === 0) {
+                ctx.fillStyle = 'white';
+                const eyeDirections = {
+                    right: { x: 14, y: 4 },
+                    left: { x: 4, y: 4 },
+                    up: { x: 4, y: 4 },
+                    down: { x: 4, y: 14 }
                 };
-            } while(segments.some(segment => 
-                segment.x === food.x && segment.y === food.y
-            ));
-        }
 
-        function drawWorm() {
-            segments.forEach((segment, index) => {
-                // Body gradient
-                const gradient = ctx.createRadialGradient(
-                    segment.x, segment.y, 0,
-                    segment.x, segment.y, CELL_SIZE/2
-                );
-                gradient.addColorStop(0, `hsl(${100 - index}, 70%, 50%)`);
-                gradient.addColorStop(1, `hsl(${80 - index}, 70%, 30%)`);
-                
-                ctx.fillStyle = gradient;
+                const dir = dx === CELL_SIZE ? 'right' :
+                          dx === -CELL_SIZE ? 'left' :
+                          dy === -CELL_SIZE ? 'up' : 'down';
+
                 ctx.beginPath();
-                ctx.roundRect(
-                    segment.x, 
-                    segment.y, 
-                    CELL_SIZE, CELL_SIZE, 
-                    index === 0 ? 8 : 4
+                ctx.arc(
+                    segment.x + eyeDirections[dir].x,
+                    segment.y + eyeDirections[dir].y,
+                    3, 0, Math.PI * 2
+                );
+                ctx.arc(
+                    segment.x + (CELL_SIZE - eyeDirections[dir].x),
+                    segment.y + eyeDirections[dir].y,
+                    3, 0, Math.PI * 2
                 );
                 ctx.fill();
 
-                // Head features
-                if(index === 0) {
-                    // Eyes
-                    ctx.fillStyle = 'white';
-                    const eyeDirections = {
-                        right: { x: 14, y: 4 },
-                        left: { x: 4, y: 4 },
-                        up: { x: 4, y: 4 },
-                        down: { x: 4, y: 14 }
-                    };
-                    
-                    const dir = dx === CELL_SIZE ? 'right' :
-                              dx === -CELL_SIZE ? 'left' :
-                              dy === -CELL_SIZE ? 'up' : 'down';
-
+                if(tongueOut) {
+                    ctx.strokeStyle = '#ff3366';
+                    ctx.lineWidth = 2;
                     ctx.beginPath();
-                    ctx.arc(
-                        segment.x + eyeDirections[dir].x,
-                        segment.y + eyeDirections[dir].y,
-                        3, 0, Math.PI * 2
+                    ctx.moveTo(
+                        segment.x + CELL_SIZE/2,
+                        segment.y + CELL_SIZE/2
                     );
-                    ctx.arc(
-                        segment.x + (CELL_SIZE - eyeDirections[dir].x),
-                        segment.y + eyeDirections[dir].y,
-                        3, 0, Math.PI * 2
+                    ctx.lineTo(
+                        segment.x + CELL_SIZE/2 + (dx/CELL_SIZE * 15),
+                        segment.y + CELL_SIZE/2 + (dy/CELL_SIZE * 15)
                     );
-                    ctx.fill();
-
-                    // Tongue animation
-                    if(tongueOut) {
-                        ctx.strokeStyle = '#ff3366';
-                        ctx.lineWidth = 2;
-                        ctx.beginPath();
-                        ctx.moveTo(
-                            segment.x + CELL_SIZE/2,
-                            segment.y + CELL_SIZE/2
-                        );
-                        ctx.lineTo(
-                            segment.x + CELL_SIZE/2 + (dx/CELL_SIZE * 10),
-                            segment.y + CELL_SIZE/2 + (dy/CELL_SIZE * 10)
-                        );
-                        ctx.stroke();
-                    }
+                    ctx.stroke();
                 }
-            });
-        }
-
-        function drawFood() {
-            ctx.fillStyle = '#ff4444';
-            ctx.beginPath();
-            ctx.arc(food.x + CELL_SIZE/2, food.y + CELL_SIZE/2, 6, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.shadowColor = '#ff4444';
-            ctx.shadowBlur = 15;
-            ctx.fill();
-            ctx.shadowBlur = 0;
-        }
-
-        function update() {
-            const now = Date.now();
-            if(now - lastUpdate < updateInterval) return;
-            lastUpdate = now;
-
-            if(pendingDirection) {
-                dx = pendingDirection.dx;
-                dy = pendingDirection.dy;
-                pendingDirection = null;
             }
+        });
+    }
 
-            const newHead = {
-                x: segments[0].x + dx,
-                y: segments[0].y + dy
-            };
+    function drawFood() {
+        ctx.fillStyle = '#ff4444';
+        ctx.beginPath();
+        ctx.arc(food.x + CELL_SIZE/2, food.y + CELL_SIZE/2, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowColor = '#ff4444';
+        ctx.shadowBlur = 20;
+        ctx.fill();
+        ctx.shadowBlur = 0;
+    }
 
-            // Wall wrapping
-            if(newHead.x >= canvas.width) newHead.x = 0;
-            if(newHead.x < 0) newHead.x = canvas.width - CELL_SIZE;
-            if(newHead.y >= canvas.height) newHead.y = 0;
-            if(newHead.y < 0) newHead.y = canvas.height - CELL_SIZE;
+    function update() {
+        const now = Date.now();
+        if(now - lastUpdate < updateInterval) return;
+        lastUpdate = now;
 
-            // Self collision check
-            if(segments.some(segment => 
-                segment.x === newHead.x && 
-                segment.y === newHead.y
-            )) {
-                gameOver();
-                return;
-            }
-
-            segments.unshift(newHead);
-
-            // Food collection
-            if(newHead.x === food.x && newHead.y === food.y) {
-                score += 10;
-                scoreElement.textContent = `Score: ${score}`;
-                updateInterval = Math.max(50, INITIAL_SPEED - score);
-                spawnFood();
-            } else {
-                segments.pop();
-            }
+        if(pendingDirection) {
+            dx = pendingDirection.dx;
+            dy = pendingDirection.dy;
+            pendingDirection = null;
         }
 
-        function gameOver() {
-            cancelAnimationFrame(gameLoop);
-            gameStarted = false;
-            startBtn.disabled = false;
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = 'white';
-            ctx.font = '30px Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Game Over!', canvas.width/2, canvas.height/2);
-            ctx.font = '20px Arial';
-            ctx.fillText(`Final Score: ${score}`, canvas.width/2, canvas.height/2 + 40);
+        const newHead = {
+            x: segments[0].x + dx,
+            y: segments[0].y + dy
+        };
+
+        // Wall wrapping
+        if(newHead.x >= canvas.width) newHead.x = 0;
+        if(newHead.x < 0) newHead.x = canvas.width - CELL_SIZE;
+        if(newHead.y >= canvas.height) newHead.y = 0;
+        if(newHead.y < 0) newHead.y = canvas.height - CELL_SIZE;
+
+        // Self collision check
+        if(segments.some(segment =>
+            segment.x === newHead.x &&
+            segment.y === newHead.y
+        )) {
+            gameOver();
+            return;
         }
 
-        function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.fillStyle = '#000';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            drawGrid();
-            drawFood();
-            drawWorm();
+        segments.unshift(newHead);
+
+        // Food collection
+        if(newHead.x === food.x && newHead.y === food.y) {
+            score += 10;
+            scoreElement.textContent = `Score: ${score}`;
+            updateInterval = Math.max(50, INITIAL_SPEED - score);
+            spawnFood();
+            showEncouragement();
+            updateSpeedDisplay();
+        } else {
+            segments.pop();
+        }
+    }
+
+    function gameOver() {
+        cancelAnimationFrame(gameLoop);
+        gameStarted = false;
+        startBtn.disabled = false;
+        clearInterval(timerInterval);
+
+        const totalTime = Math.floor((Date.now() - startTime) / 1000);
+
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#c8e6c9';
+        ctx.font = '40px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Game Over!', canvas.width/2, canvas.height/2 - 40);
+        ctx.font = '24px Arial';
+        ctx.fillText(`Final Score: ${score}`, canvas.width/2, canvas.height/2 + 10);
+        ctx.fillText(`Total Time: ${totalTime}s`, canvas.width/2, canvas.height/2 + 50);
+        speedElement.textContent = `Speed: 🐍 1/10`;
+    }
+
+    function draw() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        drawGrid();
+        drawFood();
+        drawWorm();
+    }
+
+    function handleKeyDown(event) {
+        if (!gameStarted) return;
+
+        let newDx = dx;
+        let newDy = dy;
+
+        switch(event.key) {
+            case 'ArrowUp':
+                if (dy === CELL_SIZE) return;
+                newDx = 0;
+                newDy = -CELL_SIZE;
+                break;
+            case 'ArrowDown':
+                if (dy === -CELL_SIZE) return;
+                newDx = 0;
+                newDy = CELL_SIZE;
+                break;
+            case 'ArrowLeft':
+                if (dx === CELL_SIZE) return;
+                newDx = -CELL_SIZE;
+                newDy = 0;
+                break;
+            case 'ArrowRight':
+                if (dx === -CELL_SIZE) return;
+                newDx = CELL_SIZE;
+                newDy = 0;
+                break;
         }
 
-        function handleKeyDown(event) {
-            if (!gameStarted) return;
-            
-            let newDx = dx;
-            let newDy = dy;
-            
-            switch(event.key) {
-                case 'ArrowUp':
-                    if (dy === CELL_SIZE) return;
-                    newDx = 0;
-                    newDy = -CELL_SIZE;
-                    break;
-                case 'ArrowDown':
-                    if (dy === -CELL_SIZE) return;
-                    newDx = 0;
-                    newDy = CELL_SIZE;
-                    break;
-                case 'ArrowLeft':
-                    if (dx === CELL_SIZE) return;
-                    newDx = -CELL_SIZE;
-                    newDy = 0;
-                    break;
-                case 'ArrowRight':
-                    if (dx === -CELL_SIZE) return;
-                    newDx = CELL_SIZE;
-                    newDy = 0;
-                    break;
-            }
-
-            if((newDx !== dx || newDy !== dy) && !pendingDirection) {
-                pendingDirection = { dx: newDx, dy: newDy };
-            }
+        if((newDx !== dx || newDy !== dy) && !pendingDirection) {
+            pendingDirection = { dx: newDx, dy: newDy };
         }
+    }
 
-        function gameStep() {
-            update();
-            draw();
-            gameLoop = requestAnimationFrame(gameStep);
-        }
+    function gameStep() {
+        update();
+        draw();
+        gameLoop = requestAnimationFrame(gameStep);
+    }
 
-        function startGame() {
-            if (gameStarted) return;
-            gameStarted = true;
-            startBtn.disabled = true;
-            initGame();
-            gameStep();
-        }
+    function startGame() {
+        if (gameStarted) return;
+        gameStarted = true;
+        startBtn.disabled = true;
+        bgMusic.currentTime = 0;
+        bgMusic.play().catch(error => {
+            console.log("Audio playback failed:", error);
+        });
+        initGame();
+        gameStep();
+    }
 
-        document.addEventListener('keydown', handleKeyDown);
-        startBtn.addEventListener('click', startGame);
-    </script>
+    document.addEventListener('keydown', handleKeyDown);
+    startBtn.addEventListener('click', startGame);
+</script>
 </body>
 </html>
