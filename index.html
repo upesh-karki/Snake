@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Grid-Based Snake Game</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            background: #1a1a1a;
+            margin: 0;
+            font-family: Arial, sans-serif;
+        }
+        #gameCanvas {
+            border: 3px solid #333;
+            margin-top: 20px;
+        }
+        #score {
+            color: white;
+            font-size: 24px;
+            margin: 10px;
+        }
+        #startBtn {
+            padding: 10px 20px;
+            font-size: 18px;
+            margin: 10px;
+            cursor: pointer;
+            background: #4CAF50;
+            border: none;
+            color: white;
+            border-radius: 5px;
+            transition: background 0.3s;
+        }
+        #startBtn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div id="score">Score: 0</div>
+    <canvas id="gameCanvas" width="600" height="400"></canvas>
+    <button id="startBtn">Start Game</button>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreElement = document.getElementById('score');
+        const startBtn = document.getElementById('startBtn');
+
+        // Game constants
+        const GRID_SIZE = 10;
+        const CELL_SIZE = 20;
+        const INITIAL_SPEED = 300;
+        
+        let segments = [];
+        let food = {};
+        let dx = CELL_SIZE;
+        let dy = 0;
+        let score = 0;
+        let gameStarted = false;
+        let gameLoop;
+        let lastUpdate = 0;
+        let updateInterval = INITIAL_SPEED;
+        let pendingDirection = null;
+        let tongueOut = false;
+
+        function initGame() {
+            segments = [{x: 600, y: 500}];
+            score = 0;
+            dx = CELL_SIZE;
+            dy = 0;
+            updateInterval = INITIAL_SPEED;
+            pendingDirection = null;
+            spawnFood();
+            scoreElement.textContent = `Score: ${score}`;
+            tongueOut = false;
+            setInterval(() => tongueOut = !tongueOut, 300);
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = '#333';
+            ctx.lineWidth = 0.5;
+            
+            // Vertical lines
+            for(let x = 0; x <= canvas.width; x += GRID_SIZE) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            
+            // Horizontal lines
+            for(let y = 0; y <= canvas.height; y += GRID_SIZE) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+
+        function spawnFood() {
+            const cols = canvas.width / CELL_SIZE;
+            const rows = canvas.height / CELL_SIZE;
+            
+            do {
+                food = {
+                    x: Math.floor(Math.random() * cols) * CELL_SIZE,
+                    y: Math.floor(Math.random() * rows) * CELL_SIZE
+                };
+            } while(segments.some(segment => 
+                segment.x === food.x && segment.y === food.y
+            ));
+        }
+
+        function drawWorm() {
+            segments.forEach((segment, index) => {
+                // Body gradient
+                const gradient = ctx.createRadialGradient(
+                    segment.x, segment.y, 0,
+                    segment.x, segment.y, CELL_SIZE/2
+                );
+                gradient.addColorStop(0, `hsl(${100 - index}, 70%, 50%)`);
+                gradient.addColorStop(1, `hsl(${80 - index}, 70%, 30%)`);
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.roundRect(
+                    segment.x, 
+                    segment.y, 
+                    CELL_SIZE, CELL_SIZE, 
+                    index === 0 ? 8 : 4
+                );
+                ctx.fill();
+
+                // Head features
+                if(index === 0) {
+                    // Eyes
+                    ctx.fillStyle = 'white';
+                    const eyeDirections = {
+                        right: { x: 14, y: 4 },
+                        left: { x: 4, y: 4 },
+                        up: { x: 4, y: 4 },
+                        down: { x: 4, y: 14 }
+                    };
+                    
+                    const dir = dx === CELL_SIZE ? 'right' :
+                              dx === -CELL_SIZE ? 'left' :
+                              dy === -CELL_SIZE ? 'up' : 'down';
+
+                    ctx.beginPath();
+                    ctx.arc(
+                        segment.x + eyeDirections[dir].x,
+                        segment.y + eyeDirections[dir].y,
+                        3, 0, Math.PI * 2
+                    );
+                    ctx.arc(
+                        segment.x + (CELL_SIZE - eyeDirections[dir].x),
+                        segment.y + eyeDirections[dir].y,
+                        3, 0, Math.PI * 2
+                    );
+                    ctx.fill();
+
+                    // Tongue animation
+                    if(tongueOut) {
+                        ctx.strokeStyle = '#ff3366';
+                        ctx.lineWidth = 2;
+                        ctx.beginPath();
+                        ctx.moveTo(
+                            segment.x + CELL_SIZE/2,
+                            segment.y + CELL_SIZE/2
+                        );
+                        ctx.lineTo(
+                            segment.x + CELL_SIZE/2 + (dx/CELL_SIZE * 10),
+                            segment.y + CELL_SIZE/2 + (dy/CELL_SIZE * 10)
+                        );
+                        ctx.stroke();
+                    }
+                }
+            });
+        }
+
+        function drawFood() {
+            ctx.fillStyle = '#ff4444';
+            ctx.beginPath();
+            ctx.arc(food.x + CELL_SIZE/2, food.y + CELL_SIZE/2, 6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.shadowColor = '#ff4444';
+            ctx.shadowBlur = 15;
+            ctx.fill();
+            ctx.shadowBlur = 0;
+        }
+
+        function update() {
+            const now = Date.now();
+            if(now - lastUpdate < updateInterval) return;
+            lastUpdate = now;
+
+            if(pendingDirection) {
+                dx = pendingDirection.dx;
+                dy = pendingDirection.dy;
+                pendingDirection = null;
+            }
+
+            const newHead = {
+                x: segments[0].x + dx,
+                y: segments[0].y + dy
+            };
+
+            // Wall wrapping
+            if(newHead.x >= canvas.width) newHead.x = 0;
+            if(newHead.x < 0) newHead.x = canvas.width - CELL_SIZE;
+            if(newHead.y >= canvas.height) newHead.y = 0;
+            if(newHead.y < 0) newHead.y = canvas.height - CELL_SIZE;
+
+            // Self collision check
+            if(segments.some(segment => 
+                segment.x === newHead.x && 
+                segment.y === newHead.y
+            )) {
+                gameOver();
+                return;
+            }
+
+            segments.unshift(newHead);
+
+            // Food collection
+            if(newHead.x === food.x && newHead.y === food.y) {
+                score += 10;
+                scoreElement.textContent = `Score: ${score}`;
+                updateInterval = Math.max(50, INITIAL_SPEED - score);
+                spawnFood();
+            } else {
+                segments.pop();
+            }
+        }
+
+        function gameOver() {
+            cancelAnimationFrame(gameLoop);
+            gameStarted = false;
+            startBtn.disabled = false;
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            ctx.font = '30px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Game Over!', canvas.width/2, canvas.height/2);
+            ctx.font = '20px Arial';
+            ctx.fillText(`Final Score: ${score}`, canvas.width/2, canvas.height/2 + 40);
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            drawGrid();
+            drawFood();
+            drawWorm();
+        }
+
+        function handleKeyDown(event) {
+            if (!gameStarted) return;
+            
+            let newDx = dx;
+            let newDy = dy;
+            
+            switch(event.key) {
+                case 'ArrowUp':
+                    if (dy === CELL_SIZE) return;
+                    newDx = 0;
+                    newDy = -CELL_SIZE;
+                    break;
+                case 'ArrowDown':
+                    if (dy === -CELL_SIZE) return;
+                    newDx = 0;
+                    newDy = CELL_SIZE;
+                    break;
+                case 'ArrowLeft':
+                    if (dx === CELL_SIZE) return;
+                    newDx = -CELL_SIZE;
+                    newDy = 0;
+                    break;
+                case 'ArrowRight':
+                    if (dx === -CELL_SIZE) return;
+                    newDx = CELL_SIZE;
+                    newDy = 0;
+                    break;
+            }
+
+            if((newDx !== dx || newDy !== dy) && !pendingDirection) {
+                pendingDirection = { dx: newDx, dy: newDy };
+            }
+        }
+
+        function gameStep() {
+            update();
+            draw();
+            gameLoop = requestAnimationFrame(gameStep);
+        }
+
+        function startGame() {
+            if (gameStarted) return;
+            gameStarted = true;
+            startBtn.disabled = true;
+            initGame();
+            gameStep();
+        }
+
+        document.addEventListener('keydown', handleKeyDown);
+        startBtn.addEventListener('click', startGame);
+    </script>
+</body>
+</html>
